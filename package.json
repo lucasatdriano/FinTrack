@@ -1,0 +1,21 @@
+{
+    "name": "root-scripts",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "installf": "cd frontend && npm ci",
+        "devf": "cd frontend && npm run dev",
+        "buildf": "cd frontend && npm run build",
+        "startf": "cd frontend && npm run start",
+        "lintf": "cd frontend && npm run lint",
+        "installb": "cd backend && npm ci",
+        "devb": "cd backend && npm run start:dev",
+        "buildb": "cd backend && npm run build",
+        "startb": "cd backend && npm run start",
+        "deployb": "cd backend && npm run deploy",
+        "formatb": "cd backend && prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+        "docker-run": "docker-compose -f docker-compose.yaml up --build",
+        "install-all": "cd frontend && npm ci && cd ../backend && npm ci",
+        "clean": "rimraf frontend/.next backend/dist frontend/node_modules backend/node_modules"
+    }
+}

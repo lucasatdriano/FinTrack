@@ -1,0 +1,6 @@
+services:
+    database:
+    app:
+    front:
+
+volumes:
