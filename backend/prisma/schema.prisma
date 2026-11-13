@@ -1,0 +1,551 @@
+// FinTrack - modelagem completa (Prisma + PostgreSQL)
+//
+// Convenções:
+// - Valores monetários sempre em Decimal(14,2), nunca Float
+// - Datas "de calendário" (transação, vencimento) usam @db.Date; instantes usam DateTime
+// - Saldo da conta NÃO é armazenado: é calculado (initialBalance + movimentações)
+// - Contas e categorias com histórico são arquivadas (archivedAt), não apagadas
+// - Todo registro pertence a um usuário (userId) e toda query deve filtrar por ele
+
+// Prisma 7: o client é gerado dentro do projeto (output obrigatório) e a URL do
+// banco fica em prisma.config.ts, não aqui. Importe de "src/generated/prisma/client".
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum AccountType {
+  CHECKING // conta corrente
+  SAVINGS // poupança
+  CREDIT_CARD // cartão de crédito
+  WALLET // carteira / dinheiro
+  INVESTMENT // corretora / custódia
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum InvestmentType {
+  CDB
+  LCI
+  LCA
+  TESOURO_SELIC
+  TESOURO_IPCA
+  TESOURO_PREFIXADO
+  STOCK
+  FII
+  CRYPTO
+  OTHER
+}
+
+enum Indexer {
+  CDI // taxa = % do CDI (ex.: 110)
+  SELIC
+  IPCA // taxa = IPCA + X% a.a.
+  PREFIXED // taxa = % a.a. fixa
+}
+
+enum InvestmentStatus {
+  ACTIVE
+  REDEEMED
+}
+
+enum InvestmentMovementType {
+  APPLICATION // aporte
+  REDEMPTION // resgate
+  YIELD // rendimento creditado
+  DIVIDEND // dividendo / provento
+}
+
+enum MarketIndicator {
+  CDI
+  SELIC
+  IPCA
+  BTC_BRL
+  USD_BRL
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum NotificationType {
+  BUDGET_ALERT // atingiu X% do limite
+  BUDGET_EXCEEDED // estourou o limite
+  RECURRING_CREATED
+  IMPORT_FINISHED
+  SYSTEM
+}
+
+enum ImportFormat {
+  CSV
+  OFX
+}
+
+// ============================================================
+// AUTENTICAÇÃO E USUÁRIO
+// ============================================================
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  phone           String    @unique
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  avatarUrl       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  settings         UserSettings?
+  sessions         Session[]
+  tokens           VerificationToken[]
+  accounts         Account[]
+  categories       Category[]
+  tags             Tag[]
+  transactions     Transaction[]
+  recurrings       RecurringTransaction[]
+  installmentPlans InstallmentPlan[]
+  budgets          Budget[]
+  investments      Investment[]
+  importBatches    ImportBatch[]
+  notifications    Notification[]
+
+  @@map("users")
+}
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  currency String @default("BRL")
+  locale   String @default("pt-BR")
+  timezone String @default("America/Sao_Paulo")
+
+  emailBudgetAlerts   Boolean @default(true)
+  emailMonthlySummary Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// Refresh tokens / sessões ativas (guardar apenas o hash)
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Tokens de verificação de e-mail e redefinição de senha (guardar apenas o hash)
+model VerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  type      TokenType
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("verification_tokens")
+}
+
+// ============================================================
+// CONTAS E CATEGORIAS
+// ============================================================
+
+model Account {
+  id             String      @id @default(cuid())
+  userId         String
+  name           String // apelido: "Nubank Roxinho"
+  bankName       String? // "Nubank", "Itaú"...
+  type           AccountType
+  initialBalance Decimal     @default(0) @db.Decimal(14, 2)
+  color          String? // hex
+  icon           String?
+
+  // Apenas para CREDIT_CARD
+  creditLimit Decimal? @db.Decimal(14, 2)
+  closingDay  Int? // dia de fechamento da fatura (1-31)
+  dueDay      Int? // dia de vencimento (1-31)
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]          @relation("TransactionAccount")
+  incomingTransfers Transaction[]          @relation("TransactionDestination")
+  recurrings        RecurringTransaction[] @relation("RecurringAccount")
+  recurringIncoming RecurringTransaction[] @relation("RecurringDestination")
+  importBatches     ImportBatch[]
+  investments       Investment[]
+
+  @@unique([userId, name])
+  @@index([userId, archivedAt])
+  @@map("accounts")
+}
+
+model Category {
+  id         String       @id @default(cuid())
+  userId     String
+  name       String
+  type       CategoryType
+  icon       String?
+  color      String?
+  parentId   String? // subcategorias (ex.: Alimentação > Mercado)
+  archivedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?              @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Category[]             @relation("CategoryTree")
+  transactions Transaction[]
+  recurrings   RecurringTransaction[]
+  budgets      Budget[]
+
+  @@unique([userId, type, name])
+  @@index([userId, archivedAt])
+  @@map("categories")
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  name   String
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions TransactionTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+// ============================================================
+// TRANSAÇÕES
+// ============================================================
+
+// amount é sempre positivo; o sinal vem do type:
+// - INCOME:   soma em accountId
+// - EXPENSE:  subtrai de accountId
+// - TRANSFER: subtrai de accountId e soma em destinationAccountId
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  type        TransactionType
+  amount      Decimal         @db.Decimal(14, 2)
+  description String
+  notes       String?
+  date        DateTime        @db.Date
+  isPaid      Boolean         @default(true) // false = agendada / pendente
+
+  accountId            String
+  destinationAccountId String? // apenas em TRANSFER
+  categoryId           String? // null em TRANSFER
+
+  // Origem (opcional): recorrência, parcelamento ou importação
+  recurringId       String?
+  installmentPlanId String?
+  installmentNumber Int?
+  importBatchId     String?
+  externalId        String? // id do banco (OFX FITID / hash da linha) para evitar duplicatas
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account            Account               @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  destinationAccount Account?              @relation("TransactionDestination", fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  category           Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recurring          RecurringTransaction? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  installmentPlan    InstallmentPlan?      @relation(fields: [installmentPlanId], references: [id], onDelete: SetNull)
+  importBatch        ImportBatch?          @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  tags               TransactionTag[]
+
+  @@unique([accountId, externalId]) // permite vários NULL no Postgres
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([accountId, date])
+  @@index([destinationAccountId])
+  @@index([categoryId])
+  @@index([recurringId])
+  @@index([installmentPlanId])
+  @@map("transactions")
+}
+
+model TransactionTag {
+  transactionId String
+  tagId         String
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag         Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@map("transaction_tags")
+}
+
+// Modelo de uma transação que se repete. Um cron job (@nestjs/schedule)
+// busca regras com nextRunDate <= hoje, cria a Transaction e avança nextRunDate.
+model RecurringTransaction {
+  id                   String          @id @default(cuid())
+  userId               String
+  type                 TransactionType
+  amount               Decimal         @db.Decimal(14, 2)
+  description          String
+  accountId            String
+  destinationAccountId String?
+  categoryId           String?
+
+  frequency   RecurrenceFrequency
+  interval    Int                 @default(1) // a cada N períodos
+  startDate   DateTime            @db.Date
+  endDate     DateTime?           @db.Date
+  nextRunDate DateTime            @db.Date
+  lastRunDate DateTime?           @db.Date
+  isActive    Boolean             @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account            Account       @relation("RecurringAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  destinationAccount Account?      @relation("RecurringDestination", fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  category           Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions       Transaction[]
+
+  @@index([isActive, nextRunDate])
+  @@index([userId])
+  @@map("recurring_transactions")
+}
+
+// Compra parcelada: gera N transações (installmentNumber 1..N) ligadas ao plano
+model InstallmentPlan {
+  id                String   @id @default(cuid())
+  userId            String
+  description       String
+  totalAmount       Decimal  @db.Decimal(14, 2)
+  totalInstallments Int
+  createdAt         DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("installment_plans")
+}
+
+model ImportBatch {
+  id             String       @id @default(cuid())
+  userId         String
+  accountId      String
+  fileName       String
+  format         ImportFormat
+  totalRows      Int          @default(0)
+  importedCount  Int          @default(0)
+  duplicateCount Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId, createdAt])
+  @@map("import_batches")
+}
+
+// ============================================================
+// ORÇAMENTO
+// ============================================================
+
+// Limite mensal por categoria. Um registro por categoria/mês
+// (ao virar o mês, o service copia os limites do mês anterior).
+model Budget {
+  id             String  @id @default(cuid())
+  userId         String
+  categoryId     String
+  year           Int
+  month          Int // 1-12
+  amount         Decimal @db.Decimal(14, 2)
+  alertThreshold Int     @default(80) // % do limite que dispara o alerta
+
+  alertSentAt    DateTime?
+  exceededSentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, year, month])
+  @@index([userId, year, month])
+  @@map("budgets")
+}
+
+// ============================================================
+// INVESTIMENTOS
+// ============================================================
+
+model Investment {
+  id          String         @id @default(cuid())
+  userId      String
+  accountId   String? // conta/corretora onde está custodiado
+  type        InvestmentType
+  name        String // "CDB Banco X 110% CDI"
+  institution String?
+  ticker      String? // PETR4, BTC...
+
+  indexer Indexer?
+  rate    Decimal? @db.Decimal(8, 4) // 110 (% do CDI) | 12.5 (% a.a. prefixado) | 6 (IPCA + 6%)
+
+  appliedAmount   Decimal   @db.Decimal(14, 2) // total aportado (atualizado pelos movimentos)
+  applicationDate DateTime  @db.Date
+  maturityDate    DateTime? @db.Date
+  quantity        Decimal?  @db.Decimal(24, 8) // cotas / ações / satoshis (em BTC)
+
+  currentValue Decimal          @db.Decimal(14, 2) // cache do valor atual
+  lastValuedAt DateTime?
+  status       InvestmentStatus @default(ACTIVE)
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account    Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  movements  InvestmentMovement[]
+  valuations InvestmentValuation[]
+
+  @@index([userId, status])
+  @@map("investments")
+}
+
+model InvestmentMovement {
+  id           String                 @id @default(cuid())
+  investmentId String
+  type         InvestmentMovementType
+  amount       Decimal                @db.Decimal(14, 2)
+  quantity     Decimal?               @db.Decimal(24, 8)
+  date         DateTime               @db.Date
+  notes        String?
+  createdAt    DateTime               @default(now())
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@index([investmentId, date])
+  @@map("investment_movements")
+}
+
+// Foto diária/mensal do valor do investimento (alimenta o gráfico de evolução)
+model InvestmentValuation {
+  id           String   @id @default(cuid())
+  investmentId String
+  date         DateTime @db.Date
+  value        Decimal  @db.Decimal(14, 2)
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@unique([investmentId, date])
+  @@map("investment_valuations")
+}
+
+// Cache de indicadores externos (API do Banco Central, cotação de cripto...)
+// Compartilhado entre todos os usuários, por isso não tem userId.
+model MarketRate {
+  id        String          @id @default(cuid())
+  indicator MarketIndicator
+  date      DateTime        @db.Date
+  value     Decimal         @db.Decimal(18, 8)
+
+  @@unique([indicator, date])
+  @@map("market_rates")
+}
+
+// ============================================================
+// NOTIFICAÇÕES
+// ============================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// REGRAS QUE O PRISMA NÃO EXPRESSA (adicione em uma migration SQL manual)
+// ============================================================
+//
+// ALTER TABLE transactions
+//   ADD CONSTRAINT chk_amount_positive CHECK (amount > 0),
+//   ADD CONSTRAINT chk_transfer_rules CHECK (
+//     (type = 'TRANSFER' AND "destinationAccountId" IS NOT NULL
+//        AND "destinationAccountId" <> "accountId" AND "categoryId" IS NULL)
+//     OR
+//     (type <> 'TRANSFER' AND "destinationAccountId" IS NULL)
+//   );
+//
+// ALTER TABLE budgets
+//   ADD CONSTRAINT chk_budget_month CHECK (month BETWEEN 1 AND 12),
+//   ADD CONSTRAINT chk_budget_threshold CHECK ("alertThreshold" BETWEEN 1 AND 100);
+//
+// ALTER TABLE accounts
+//   ADD CONSTRAINT chk_closing_day CHECK ("closingDay" IS NULL OR "closingDay" BETWEEN 1 AND 31),
+//   ADD CONSTRAINT chk_due_day CHECK ("dueDay" IS NULL OR "dueDay" BETWEEN 1 AND 31);
+//
+// Saldo de uma conta (referência para o service):
+//   initialBalance
+//   + SUM(amount) de INCOME            em accountId
+//   - SUM(amount) de EXPENSE           em accountId
+//   - SUM(amount) de TRANSFER (saída)  em accountId
+//   + SUM(amount) de TRANSFER (entrada) em destinationAccountId
+//   considerando apenas isPaid = true

@@ -28,8 +28,36 @@ export const metadata: Metadata = {
         'Controle Financeiro',
     ],
     icons: {
-        icon: '../../public/icons/logo-finTrack.svg',
-        // icon: '/icons/logo-finTrack.svg',
+        icon: '/icons/logo-finTrack.svg',
+        shortcut: '/icons/logo-finTrack.svg',
+    },
+    openGraph: {
+        title: 'Fintrack - Controle Financeiro',
+        description: 'Controle suas finanças pessoais com segurança.',
+        url: 'https://fintrack.vercel.app/',
+        siteName: 'FinTrack',
+        images: [
+            {
+                url: '/icons/logo-finTrack.svg',
+                width: 800,
+                height: 600,
+            },
+        ],
+        locale: 'pt-BR',
+        type: 'website',
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Fintrack - Controle Financeiro',
+        description: 'Controle suas finanças pessoais com segurança.',
+        images: ['/icons/logo-finTrack.svg'],
+    },
+    // manifest: '/manifest.json',
+    themeColor: '#00bc7d',
+    viewport: {
+        width: 'device-width',
+        initialScale: 1,
+        maximumScale: 1,
     },
 };
 

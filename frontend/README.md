@@ -13,15 +13,17 @@ Interface web do FinTrack, construída com **Next.js** (App Router) e **TypeScri
 
 ```
 frontend/
-├── app/
-│   ├── (auth)/            # login, cadastro, esqueci a senha, verificação de e-mail
-│   └── (dashboard)/       # dashboard, transações, contas, orçamento, investimentos, configurações
-├── components/
-│   ├── ui/                # botões, inputs, cards, tooltips...
-│   ├── modals/            # criar/editar transação, conta, categoria, orçamento, investimento
-│   └── charts/            # gráficos do dashboard
-├── hooks/
-├── lib/                   # cliente da API, formatadores, utilitários
+├── src/
+│   ├── app/
+│   │   ├── (auth)/            # login, cadastro, esqueci a senha, verificação de e-mail
+│   │   └── (protected)/       # dashboard, transações, contas, orçamento, investimentos, configurações
+│   ├── components/
+│   │   ├── ui/                # botões, inputs, cards, tooltips...
+│   │   ├── modals/            # criar/editar transação, conta, categoria, orçamento, investimento
+│   │   └── layout/            # header, sidebar, bottombar...
+│   ├── hooks/
+│   ├── lib/                   # cliente da API, formatadores, utilitários
+│   └── validators/            # validação de formulários
 ├── public/
 ├── Dockerfile
 └── .env.example
