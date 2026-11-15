@@ -4,9 +4,10 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { PasswordModule } from '../../common/security/password.module.js';
 
 @Module({
-  imports: [JwtModule.register({})], // segredo por chamada
+  imports: [JwtModule.register({}), PasswordModule],
   controllers: [AuthController],
   providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
   exports: [AuthService],

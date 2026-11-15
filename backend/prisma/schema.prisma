@@ -7,8 +7,6 @@
 // - Contas e categorias com histórico são arquivadas (archivedAt), não apagadas
 // - Todo registro pertence a um usuário (userId) e toda query deve filtrar por ele
 
-// Prisma 7: o client é gerado dentro do projeto (output obrigatório) e a URL do
-// banco fica em prisma.config.ts, não aqui. Importe de "src/generated/prisma/client".
 generator client {
   provider     = "prisma-client"
   output       = "../src/generated/prisma"
@@ -118,7 +116,6 @@ model User {
   phone           String    @unique
   passwordHash    String
   emailVerifiedAt DateTime?
-  avatarUrl       String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -231,7 +228,7 @@ model Category {
   type       CategoryType
   icon       String?
   color      String?
-  parentId   String? // subcategorias (ex.: Alimentação > Mercado)
+  parentId   String?
   archivedAt DateTime?
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
@@ -293,8 +290,8 @@ model Transaction {
   updatedAt DateTime @updatedAt
 
   user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account            Account               @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)
-  destinationAccount Account?              @relation("TransactionDestination", fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  account            Account               @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: NoAction)
+  destinationAccount Account?              @relation("TransactionDestination", fields: [destinationAccountId], references: [id], onDelete: NoAction)
   category           Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   recurring          RecurringTransaction? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
   installmentPlan    InstallmentPlan?      @relation(fields: [installmentPlanId], references: [id], onDelete: SetNull)
@@ -336,7 +333,7 @@ model RecurringTransaction {
   categoryId           String?
 
   frequency   RecurrenceFrequency
-  interval    Int                 @default(1) // a cada N períodos
+  interval    Int                 @default(1)
   startDate   DateTime            @db.Date
   endDate     DateTime?           @db.Date
   nextRunDate DateTime            @db.Date
@@ -347,8 +344,8 @@ model RecurringTransaction {
   updatedAt DateTime @updatedAt
 
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account            Account       @relation("RecurringAccount", fields: [accountId], references: [id], onDelete: Restrict)
-  destinationAccount Account?      @relation("RecurringDestination", fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  account            Account       @relation("RecurringAccount", fields: [accountId], references: [id], onDelete: NoAction)
+  destinationAccount Account?      @relation("RecurringDestination", fields: [destinationAccountId], references: [id], onDelete: NoAction)
   category           Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   transactions       Transaction[]
 

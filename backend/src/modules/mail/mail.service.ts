@@ -3,23 +3,41 @@ import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
 
 import { verificationEmail } from './templates/verification.template.js';
-import { passwordResetEmail } from './templates/password.template.js';
+import { passwordResetEmail } from './templates/password-reset.template.js';
+import { passwordChangedEmail } from './templates/password-changed.template.js';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly resend: Resend;
+  private readonly resend: Resend | null;
   private readonly from: string;
   private readonly appUrl: string;
+  private readonly frontUrl: string;
+  private readonly isProd: boolean;
 
   constructor(private readonly config: ConfigService) {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    const apiKey = process.env.RESEND_API_KEY;
+    this.isProd = this.config.get('app.nodeEnv') === 'production';
+
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+    } else {
+      this.resend = null;
+      if (this.isProd) {
+        throw new Error('RESEND_API_KEY ausente em produção');
+      }
+      this.logger.warn(
+        'RESEND_API_KEY não definida — e-mails serão impressos no console (dev only).',
+      );
+    }
+
     this.from = this.config.get<string>('mail.from')!;
-    this.appUrl = this.config.get<string>('app.url')!;
+    this.appUrl = this.config.get<string>('app.frontUrl')!;
   }
 
   async sendVerificationEmail(to: string, token: string, userName: string) {
-    const verifyUrl = `${this.appUrl}/auth/verify-email?token=${token}`;
+    const verifyUrl = `${this.frontUrl}/verify-email?token=${token}`;
+
     const { subject, html, text } = verificationEmail({
       userName,
       verifyUrl,
@@ -35,7 +53,7 @@ export class MailService {
     userName: string,
     requestIp?: string,
   ) {
-    const resetUrl = `${this.appUrl}/auth/reset-password?token=${token}`;
+    const resetUrl = `${this.frontUrl}/reset-password?token=${token}`;
     const { subject, html, text } = passwordResetEmail({
       userName,
       resetUrl,
@@ -46,7 +64,17 @@ export class MailService {
     await this.send(to, subject, html, text);
   }
 
+  async sendPasswordChangedEmail(to: string, userName: string) {
+    const { subject, html, text } = passwordChangedEmail({ userName });
+    await this.send(to, subject, html, text);
+  }
+
   private async send(to: string, subject: string, html: string, text: string) {
+    if (!this.resend) {
+      this.logger.log(`[MAIL:dev] to=${to} subject="${subject}"`);
+      this.logger.debug(text);
+      return;
+    }
     try {
       const { error } = await this.resend.emails.send({
         from: this.from,

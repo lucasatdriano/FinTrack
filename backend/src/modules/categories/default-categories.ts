@@ -17,7 +17,6 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
     icon: 'graduation-cap',
     color: '#0EA5E9',
   },
-  { name: 'Assinaturas', type: 'EXPENSE', icon: 'repeat', color: '#6366F1' },
   { name: 'Compras', type: 'EXPENSE', icon: 'shopping-bag', color: '#F59E0B' },
   {
     name: 'Contas e Serviços',
@@ -41,6 +40,12 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
     type: 'INCOME',
     icon: 'trending-up',
     color: '#059669',
+  },
+  {
+    name: 'Dividendos',
+    type: 'INCOME',
+    icon: 'coins',
+    color: '#05dd69',
   },
   { name: 'Reembolsos', type: 'INCOME', icon: 'undo-2', color: '#34D399' },
   { name: 'Outros', type: 'INCOME', icon: 'circle-plus', color: '#6EE7B7' },

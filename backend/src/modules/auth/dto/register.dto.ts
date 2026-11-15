@@ -1,11 +1,10 @@
 import { z } from 'zod';
+import { PhoneSchema } from '../../../common/validations/phone.js';
 
 export const RegisterSchema = z.object({
   name: z.string().min(2).max(120),
   email: z.email().toLowerCase(),
-  phone: z
-    .string()
-    .regex(/^\+?[1-9]\d{7,14}$/, 'Telefone inválido (formato E.164)'),
+  phone: PhoneSchema,
   password: z
     .string()
     .min(8, 'Mínimo 8 caracteres')

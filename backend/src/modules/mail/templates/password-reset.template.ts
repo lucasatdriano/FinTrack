@@ -35,7 +35,7 @@ export function passwordResetEmail({
     ${renderButton('Redefinir senha', resetUrl)}
 
     <p style="margin:0;font-size:13px;color:#6b7280;">
-      ⏱️ Este link expira em <strong>${expiresInMinutes} minutos</strong>.
+      Este link expira em <strong>${expiresInMinutes} minutos</strong>.
     </p>
 
     ${renderFallbackLink(resetUrl)}

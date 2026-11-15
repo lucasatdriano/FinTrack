@@ -11,7 +11,7 @@ export function renderLayout({
   previewText,
   content,
   appName = 'FinTrack',
-  appUrl = process.env.APP_URL ?? 'http://localhost:3000',
+  appUrl = process.env.APP_URL ?? 'http://localhost:3001',
 }: LayoutOptions): string {
   return `<!doctype html>
 <html lang="pt-BR">

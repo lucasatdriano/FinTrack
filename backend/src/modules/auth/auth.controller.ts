@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Ip,
   Post,
-  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -30,32 +29,43 @@ import {
   ResetPasswordSchema,
   type ResetPasswordDto,
 } from './dto/reset-password.dto.js';
+import { Throttle } from '@nestjs/throttler';
+import {
+  VerifyEmailSchema,
+  type VerifyEmailDto,
+} from './dto/verify-email.dto.js';
+import { durationToSeconds } from '../../common/utils/duration.utils.js';
 
 const REFRESH_COOKIE = 'ft_refresh';
-const REFRESH_PATHS = ['/auth/refresh', '/auth/logout'];
 
 @Controller('auth')
 @UseGuards(JwtAuthGuard)
 export class AuthController {
   constructor(
-    private readonly auth: AuthService,
-    private readonly config: ConfigService,
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   register(@Body(new ZodValidationPipe(RegisterSchema)) dto: RegisterDto) {
-    return this.auth.register(dto);
+    return this.authService.register(dto);
   }
 
   @Public()
-  @Get('verify-email')
-  verifyEmail(@Query('token') token: string) {
-    return this.auth.verifyEmail(token);
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  verifyEmail(
+    @Body(new ZodValidationPipe(VerifyEmailSchema)) dto: VerifyEmailDto,
+  ) {
+    return this.authService.verifyEmail(dto.token);
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
@@ -65,15 +75,16 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const { accessToken, refreshToken, accessExpiresIn } =
-      await this.auth.login(dto, {
+      await this.authService.login(dto, {
         userAgent: req.headers['user-agent'],
         ip,
       });
-    this.setRefreshCookie(res, refreshToken, accessExpiresIn);
+    this.setRefreshCookie(res, refreshToken);
     return { accessToken, expiresIn: accessExpiresIn };
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
@@ -85,11 +96,11 @@ export class AuthController {
     if (!raw) throw new UnauthorizedException('Refresh cookie ausente');
 
     const { accessToken, refreshToken, accessExpiresIn } =
-      await this.auth.refresh(raw, {
+      await this.authService.refresh(raw, {
         userAgent: req.headers['user-agent'],
         ip,
       });
-    this.setRefreshCookie(res, refreshToken, accessExpiresIn);
+    this.setRefreshCookie(res, refreshToken);
     return { accessToken, expiresIn: accessExpiresIn };
   }
 
@@ -98,18 +109,19 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const raw = req.cookies?.[REFRESH_COOKIE] as string | undefined;
-    if (raw) await this.auth.logout(raw);
+    if (raw) await this.authService.logout(raw);
     this.clearRefreshCookie(res);
     return { message: 'Logout realizado' };
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   forgotPassword(
     @Body(new ZodValidationPipe(ForgotPasswordSchema)) dto: ForgotPasswordDto,
   ) {
-    return this.auth.forgotPassword(dto.email);
+    return this.authService.forgotPassword(dto.email);
   }
 
   @Public()
@@ -118,7 +130,7 @@ export class AuthController {
   resetPassword(
     @Body(new ZodValidationPipe(ResetPasswordSchema)) dto: ResetPasswordDto,
   ) {
-    return this.auth.resetPassword(dto.token, dto.newPassword);
+    return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 
   @Get('me')
@@ -126,16 +138,19 @@ export class AuthController {
     return user;
   }
 
-  // ---------------- helpers de cookie ----------------
-  private setRefreshCookie(
-    res: Response,
-    token: string,
-    accessExpiresIn: number,
-  ) {
-    const isProd = this.config.get('app.nodeEnv') === 'production';
-    const maxAge = this.durationToMs(
-      this.config.get<string>('jwt.refreshExpiresIn')!,
-    );
+  private getRefreshToken(req: Request): string | undefined {
+    const token = req.cookies?.[REFRESH_COOKIE];
+
+    return typeof token === 'string' ? token : undefined;
+  }
+
+  private setRefreshCookie(res: Response, token: string) {
+    const isProd = this.configService.get('app.nodeEnv') === 'production';
+    const maxAge =
+      durationToSeconds(
+        this.configService.get<string>('jwt.refreshExpiresIn')!,
+      ) * 1000;
+
     res.cookie(REFRESH_COOKIE, token, {
       httpOnly: true,
       secure: isProd,
@@ -143,20 +158,9 @@ export class AuthController {
       path: '/auth',
       maxAge,
     });
-    void accessExpiresIn;
   }
 
   private clearRefreshCookie(res: Response) {
     res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
-  }
-
-  private durationToMs(d: string): number {
-    const m = /^(\d+)([smhd])$/.exec(d);
-    if (!m) return 30 * 86400 * 1000;
-    const n = Number(m[1]);
-    const ms = ({ s: 1e3, m: 60e3, h: 3600e3, d: 86400e3 } as const)[
-      m[2] as 's' | 'm' | 'h' | 'd'
-    ];
-    return n * ms;
   }
 }

@@ -239,7 +239,7 @@ async function main() {
       55.9,
       'Netflix',
       card.id,
-      'Assinaturas',
+      'Lazer',
     );
     add(
       dayOf(i, 16),
@@ -247,7 +247,7 @@ async function main() {
       21.9,
       'Spotify',
       card.id,
-      'Assinaturas',
+      'Lazer',
     );
 
     add(
