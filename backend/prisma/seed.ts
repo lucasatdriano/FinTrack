@@ -68,9 +68,6 @@ async function main() {
     throw new Error('O seed de demonstração não deve rodar em produção.');
   }
 
-  // ---------- limpeza do usuário demo ----------
-  // Apaga transações e recorrências antes do usuário, por causa do onDelete: Restrict
-  // nas contas. O resto sai em cascata junto com o usuário.
   const existing = await prisma.user.findUnique({
     where: { email: DEMO_EMAIL },
   });
@@ -82,7 +79,6 @@ async function main() {
     await prisma.user.delete({ where: { id: existing.id } });
   }
 
-  // ---------- usuário e categorias ----------
   const user = await prisma.user.create({
     data: {
       name: 'Usuário Demo',
@@ -106,7 +102,6 @@ async function main() {
     return found.id;
   };
 
-  // ---------- contas ----------
   const [nubank, itau, card, wallet, broker] = await Promise.all([
     prisma.account.create({
       data: {
@@ -162,7 +157,6 @@ async function main() {
     }),
   ]);
 
-  // ---------- transações (últimos 6 meses) ----------
   const txs: Prisma.TransactionCreateManyInput[] = [];
   const add = (
     date: Date,
@@ -173,7 +167,7 @@ async function main() {
     category?: string,
     extra: Partial<Prisma.TransactionCreateManyInput> = {},
   ) => {
-    if (date > today) return; // não cria transações no futuro
+    if (date > today) return;
     txs.push({
       userId: user.id,
       date,
@@ -286,7 +280,6 @@ async function main() {
   }
   await prisma.transaction.createMany({ data: txs });
 
-  // ---------- recorrências ----------
   const salaryRun = runDates(5);
   const rentRun = runDates(10);
   await prisma.recurringTransaction.createMany({
@@ -320,7 +313,6 @@ async function main() {
     ],
   });
 
-  // ---------- orçamento do mês atual ----------
   const limits: [string, number][] = [
     ['Moradia', 1500],
     ['Alimentação', 1400],
@@ -339,7 +331,6 @@ async function main() {
     })),
   });
 
-  // ---------- investimentos ----------
   const cdb = valuations(13200, 0.0094);
   await prisma.investment.create({
     data: {

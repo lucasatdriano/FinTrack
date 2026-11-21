@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -9,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import type { CreateTransactionDto } from './dto/create-transaction.dto.js';
 import type { UpdateTransactionDto } from './dto/update-transaction.dto.js';
 import type { ListTransactionsQuery } from './dto/list-transactions.query.js';
+import { BudgetAlertsService } from '../budgets/budget-alerts.service.js';
 
 const TX_SELECT = {
   id: true,
@@ -37,7 +39,12 @@ const TX_SELECT = {
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TransactionsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly budgetAlertsService: BudgetAlertsService,
+  ) {}
 
   async create(userId: string, dto: CreateTransactionDto) {
     this.assertTransferInvariants({
@@ -47,21 +54,26 @@ export class TransactionsService {
       categoryId: dto.categoryId ?? null,
     });
 
-    await this.assertAccountsUsable(userId, [
+    await this.assertAccountsUsable(this.prisma, userId, [
       dto.accountId,
       ...(dto.destinationAccountId ? [dto.destinationAccountId] : []),
     ]);
 
     if (dto.categoryId) {
-      await this.assertCategoryUsable(userId, dto.categoryId, dto.type);
+      await this.assertCategoryUsable(
+        this.prisma,
+        userId,
+        dto.categoryId,
+        dto.type,
+      );
     }
 
     if (dto.tagIds && dto.tagIds.length > 0) {
-      await this.assertTagsBelongToUser(userId, dto.tagIds);
+      await this.assertTagsBelongToUser(this.prisma, userId, dto.tagIds);
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const tx = await this.prisma.$transaction(async (tx) => {
         return tx.transaction.create({
           data: {
             userId,
@@ -84,6 +96,12 @@ export class TransactionsService {
           select: TX_SELECT,
         });
       });
+
+      void this.budgetAlertsService
+        .evaluateForTransaction({ userId, transactionId: tx.id })
+        .catch((err) => this.logger.error('Falha ao avaliar budget', err));
+
+      return tx;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -153,8 +171,15 @@ export class TransactionsService {
     transactionId: string,
     dto: UpdateTransactionDto,
   ) {
+    let finalTxForAlert: {
+      id: string;
+      date: Date;
+      type: string;
+      isPaid: boolean;
+    } | null = null;
+
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const current = await tx.transaction.findFirst({
           where: { id: transactionId, userId },
           select: {
@@ -192,14 +217,19 @@ export class TransactionsService {
           final.accountId,
           ...(final.destinationAccountId ? [final.destinationAccountId] : []),
         ];
-        await this.assertAccountsUsable(userId, accountIds);
+        await this.assertAccountsUsable(tx, userId, accountIds);
 
         if (final.categoryId) {
-          await this.assertCategoryUsable(userId, final.categoryId, final.type);
+          await this.assertCategoryUsable(
+            tx,
+            userId,
+            final.categoryId,
+            final.type,
+          );
         }
 
         if (dto.tagIds && dto.tagIds.length > 0) {
-          await this.assertTagsBelongToUser(userId, dto.tagIds);
+          await this.assertTagsBelongToUser(tx, userId, dto.tagIds);
         }
 
         const updated = await tx.transaction.updateMany({
@@ -252,6 +282,23 @@ export class TransactionsService {
           select: TX_SELECT,
         });
       });
+
+      if (result.type === 'EXPENSE' && result.isPaid) {
+        finalTxForAlert = {
+          id: result.id,
+          date: result.date,
+          type: result.type,
+          isPaid: result.isPaid,
+        };
+      }
+
+      if (finalTxForAlert) {
+        void this.budgetAlertsService
+          .evaluateForTransaction({ userId, transactionId: finalTxForAlert.id })
+          .catch((err) => this.logger.error('Falha ao avaliar budget', err));
+      }
+
+      return result;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -266,6 +313,17 @@ export class TransactionsService {
   }
 
   async remove(userId: string, transactionId: string) {
+    const txToDelete = await this.prisma.transaction.findFirst({
+      where: { id: transactionId, userId },
+      select: {
+        id: true,
+        type: true,
+        categoryId: true,
+        date: true,
+        isPaid: true,
+      },
+    });
+
     const deleted = await this.prisma.transaction.deleteMany({
       where: {
         id: transactionId,
@@ -287,15 +345,31 @@ export class TransactionsService {
       );
     }
 
+    if (txToDelete && txToDelete.type === 'EXPENSE' && txToDelete.isPaid) {
+      const [y, m] = txToDelete.date
+        .toISOString()
+        .slice(0, 10)
+        .split('-')
+        .map(Number);
+      void this.budgetAlertsService
+        .reevaluateMonth(userId, y, m)
+        .catch((err) => this.logger.error('Falha ao reavaliar budget', err));
+    }
+
     return { message: 'Transação excluída' };
   }
 
-  private async assertAccountsUsable(userId: string, accountIds: string[]) {
+  private async assertAccountsUsable(
+    client: Prisma.TransactionClient | PrismaService,
+    userId: string,
+    accountIds: string[],
+  ) {
     const unique = [...new Set(accountIds)];
-    const accounts = await this.prisma.account.findMany({
+    const accounts = await client.account.findMany({
       where: { id: { in: unique }, userId },
       select: { id: true, archivedAt: true },
     });
+
     if (accounts.length !== unique.length) {
       throw new NotFoundException(
         'Alguma conta não existe ou não pertence ao usuário',
@@ -337,11 +411,12 @@ export class TransactionsService {
   }
 
   private async assertCategoryUsable(
+    client: Prisma.TransactionClient | PrismaService,
     userId: string,
     categoryId: string,
     transactionType: 'INCOME' | 'EXPENSE' | 'TRANSFER',
   ) {
-    const category = await this.prisma.category.findFirst({
+    const category = await client.category.findFirst({
       where: { id: categoryId, userId },
       select: { id: true, type: true, archivedAt: true },
     });
@@ -361,10 +436,14 @@ export class TransactionsService {
     }
   }
 
-  private async assertTagsBelongToUser(userId: string, tagIds: string[]) {
+  private async assertTagsBelongToUser(
+    client: Prisma.TransactionClient | PrismaService,
+    userId: string,
+    tagIds: string[],
+  ) {
     const uniqueTagIds = [...new Set(tagIds)];
 
-    const found = await this.prisma.tag.count({
+    const found = await client.tag.count({
       where: { id: { in: uniqueTagIds }, userId },
     });
 

@@ -9,7 +9,7 @@ export interface PasswordChangedEmailProps {
 export function passwordChangedEmail({
   userName,
   changedAt = new Date(),
-  appUrl = process.env.APP_URL ?? 'http://localhost:3001',
+  appUrl = process.env.API_URL ?? 'http://localhost:3001',
 }: PasswordChangedEmailProps): { subject: string; html: string; text: string } {
   const firstName = userName.split(' ')[0];
   const when = changedAt.toLocaleString('pt-BR', {

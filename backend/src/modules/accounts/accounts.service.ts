@@ -141,8 +141,6 @@ export class AccountsService {
     });
     if (!current) throw new NotFoundException('Conta não encontrada');
 
-    // Estado FINAL = current + dto (o que ficará gravado se o update passar).
-    // É isso que precisa satisfazer a regra, não o dto isolado nem o current isolado.
     const finalState = {
       type: dto.type ?? current.type,
       creditLimit:

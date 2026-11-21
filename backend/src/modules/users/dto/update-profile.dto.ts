@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PhoneSchema } from '../../../common/validations/phone.js';
+import { PhoneSchema } from '../../../common/validations/phone.schema.js';
 
 export const UpdateProfileSchema = z
   .object({

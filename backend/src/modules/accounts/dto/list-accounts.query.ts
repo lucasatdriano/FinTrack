@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { AccountTypeSchema } from './account.schema.js';
+import { BooleanQuery } from '../../../common/validations/boolean.schema.js';
 
 export const ListAccountsQuerySchema = z.object({
-  includeArchived: z.coerce.boolean().default(false),
+  includeArchived: BooleanQuery.default(false),
   type: AccountTypeSchema.optional(),
   balanceAt: z
     .string()

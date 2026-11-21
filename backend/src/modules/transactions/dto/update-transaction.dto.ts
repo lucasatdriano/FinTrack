@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { MoneySchema } from '../../../common/validations/money.js';
-import { DateOnlySchema, TransactionTypeSchema } from './transaction.schema.js';
+import { MoneySchema } from '../../../common/validations/money.schema.js';
+import { TransactionTypeSchema } from './transaction.schema.js';
+import { DateOnlySchema } from '../../../common/validations/date.schema.js';
 
 export const UpdateTransactionSchema = z
   .object({

@@ -4,7 +4,7 @@ import { DashboardService } from './dashboard.service.js';
 import { AccountsModule } from '../accounts/accounts.module.js';
 
 @Module({
-  imports: [AccountsModule], // pra usar AccountBalanceService
+  imports: [AccountsModule],
   controllers: [DashboardController],
   providers: [DashboardService],
 })

@@ -5,9 +5,10 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { PasswordModule } from '../../common/security/password.module.js';
+import { CategoriesModule } from '../categories/categories.module.js';
 
 @Module({
-  imports: [JwtModule.register({}), PasswordModule],
+  imports: [JwtModule.register({}), PasswordModule, CategoriesModule],
   controllers: [AuthController],
   providers: [AuthService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
   exports: [AuthService],

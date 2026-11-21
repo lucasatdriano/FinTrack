@@ -100,7 +100,6 @@ export class CategoriesService {
     });
     if (!current) throw new NotFoundException('Categoria não encontrada');
 
-    // Mudar type com histórico quebra a integridade semântica
     if (dto.type && dto.type !== current.type) {
       if (current._count.transactions > 0 || current._count.budgets > 0) {
         throw new ConflictException(

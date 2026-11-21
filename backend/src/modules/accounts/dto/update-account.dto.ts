@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AccountTypeSchema } from './account.schema.js';
-import { MoneySchema } from '../../../common/validations/money.js';
+import { MoneySchema } from '../../../common/validations/money.schema.js';
 
 export const UpdateAccountSchema = z
   .object({

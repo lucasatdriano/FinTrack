@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-/**
- * `asOf` (opcional): data de referência pro "hoje" (YYYY-MM-DD).
- * Se ausente, usa a data atual no timezone do usuário.
- * Útil pra testes determinísticos e pra "ver o mês passado como se fosse hoje".
- */
 export const SummaryQuerySchema = z.object({
   asOf: z
     .string()

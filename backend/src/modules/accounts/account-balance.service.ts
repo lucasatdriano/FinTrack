@@ -83,7 +83,6 @@ export class AccountBalanceService {
     return result;
   }
 
-  /** Conveniência para 1 conta. */
   async computeBalance(
     userId: string,
     accountId: string,

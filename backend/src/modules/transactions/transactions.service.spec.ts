@@ -11,9 +11,6 @@ import { Prisma } from '../../generated/prisma/client.js';
 
 const D = (v: number | string) => new Prisma.Decimal(v);
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 const USER = 'user_1';
 const ACCOUNT_A = 'acc_a';
 const ACCOUNT_B = 'acc_b';
@@ -55,9 +52,6 @@ function txExpense(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Suite
-// ---------------------------------------------------------------------------
 describe('TransactionsService', () => {
   let service: TransactionsService;
   let prisma: {
@@ -93,7 +87,6 @@ describe('TransactionsService', () => {
       $transaction: vi.fn(),
     };
 
-    // Mock transparente: callback recebe o próprio prisma; array vira Promise.all
     prisma.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === 'function')
         return (arg as (tx: typeof prisma) => unknown)(prisma);
@@ -110,9 +103,6 @@ describe('TransactionsService', () => {
     service = moduleRef.get(TransactionsService);
   });
 
-  // =========================================================================
-  // create
-  // =========================================================================
   describe('create', () => {
     describe('invariantes de transferência', () => {
       it('rejeita TRANSFER sem destinationAccountId', async () => {
@@ -387,9 +377,6 @@ describe('TransactionsService', () => {
     });
   });
 
-  // =========================================================================
-  // list
-  // =========================================================================
   describe('list', () => {
     it('aplica filtros (type, from/to, search)', async () => {
       prisma.transaction.findMany.mockResolvedValue([]);
@@ -472,9 +459,6 @@ describe('TransactionsService', () => {
     });
   });
 
-  // =========================================================================
-  // findOne
-  // =========================================================================
   describe('findOne', () => {
     it('404 quando não existe', async () => {
       prisma.transaction.findFirst.mockResolvedValue(null);
@@ -490,9 +474,6 @@ describe('TransactionsService', () => {
     });
   });
 
-  // =========================================================================
-  // update
-  // =========================================================================
   describe('update', () => {
     const currentExpense = {
       id: 'tx_1',
@@ -549,7 +530,6 @@ describe('TransactionsService', () => {
           service.update(USER, 'tx_1', {
             type: 'TRANSFER',
             destinationAccountId: ACCOUNT_B,
-            // categoryId não é passado → mantém CAT_EXPENSE do current
           }),
         ).rejects.toBeInstanceOf(BadRequestException);
       });
@@ -630,9 +610,6 @@ describe('TransactionsService', () => {
     });
   });
 
-  // =========================================================================
-  // remove
-  // =========================================================================
   describe('remove', () => {
     it('404 quando não existe', async () => {
       prisma.transaction.findFirst.mockResolvedValue(null);

@@ -7,20 +7,21 @@ import type { MonthlyEvolutionQuery } from './dto/monthly-evolution.query.js';
 import {
   monthBounds,
   monthsSeries,
-  resolveReference,
+  parseYmd,
   shiftDays,
-} from './date-window.js';
+  todayInTz,
+} from '../../common/utils/date.utils.js';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly balance: AccountBalanceService,
+    private readonly accountBalanceService: AccountBalanceService,
   ) {}
 
   async summary(userId: string, query: SummaryQuery) {
     const tz = await this.getUserTimezone(userId);
-    const { year, month, today } = resolveReference(query.asOf, tz);
+    const { year, month, today } = this.resolveReference(query.asOf, tz);
     const { from: monthFrom, to: monthTo } = monthBounds(year, month);
 
     const prevYear = month === 1 ? year - 1 : year;
@@ -31,7 +32,6 @@ export class DashboardService {
       accounts,
       monthAgg,
       prevMonthAgg,
-      budgetCount,
       budgetSpentByCategory,
       topCategories,
       upcoming,
@@ -40,6 +40,7 @@ export class DashboardService {
       lastTransactions,
       investedTotals,
       topInvestments,
+      budgets,
     ] = await Promise.all([
       this.prisma.account.findMany({
         where: { userId, archivedAt: null },
@@ -48,7 +49,6 @@ export class DashboardService {
       }),
       this.monthAggregates(userId, monthFrom, monthTo),
       this.monthAggregates(userId, prevFrom, prevTo),
-      this.prisma.budget.count({ where: { userId, year, month } }),
       this.spentByCategory(userId, monthFrom, monthTo),
       this.topExpenseCategories(userId, monthFrom, monthTo, 5),
       this.prisma.recurringTransaction.findMany({
@@ -83,7 +83,6 @@ export class DashboardService {
           createdAt: true,
         },
       }),
-
       this.prisma.transaction.findMany({
         where: { userId },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
@@ -101,16 +100,26 @@ export class DashboardService {
           },
         },
       }),
-
       this.investedTotals(userId, prevTo),
       this.topInvestments(userId, 3, prevTo),
+      this.prisma.budget.findMany({
+        where: { userId, year, month },
+        select: {
+          id: true,
+          categoryId: true,
+          amount: true,
+          alertThreshold: true,
+          category: {
+            select: { id: true, name: true, icon: true, color: true },
+          },
+        },
+      }),
     ]);
 
     const accountIds = accounts.map((a) => a.id);
-
     const [balanceMap, prevBalanceMap] = await Promise.all([
-      this.balance.computeBalances(userId, accountIds, today),
-      this.balance.computeBalances(userId, accountIds, prevTo),
+      this.accountBalanceService.computeBalances(userId, accountIds, today),
+      this.accountBalanceService.computeBalances(userId, accountIds, prevTo),
     ]);
 
     let totalBalance = new Prisma.Decimal(0);
@@ -127,21 +136,6 @@ export class DashboardService {
       );
     }
 
-    const budgets =
-      budgetSpentByCategory.size > 0
-        ? await this.prisma.budget.findMany({
-            where: { userId, year, month },
-            select: {
-              id: true,
-              categoryId: true,
-              amount: true,
-              alertThreshold: true,
-              category: {
-                select: { id: true, name: true, icon: true, color: true },
-              },
-            },
-          })
-        : [];
     const budgetCards = budgets.map((b) => {
       const spent =
         budgetSpentByCategory.get(b.categoryId) ?? new Prisma.Decimal(0);
@@ -194,7 +188,7 @@ export class DashboardService {
         ),
         top: topInvestments,
       },
-      budgets: { count: budgetCount, cards: budgetCards },
+      budgets: { count: budgets.length, cards: budgetCards },
       topExpenseCategories: topCategories,
       lastTransactions,
       pending: { count: pendingCount },
@@ -205,23 +199,27 @@ export class DashboardService {
 
   async monthlyEvolution(userId: string, query: MonthlyEvolutionQuery) {
     const tz = await this.getUserTimezone(userId);
-    const { year, month } = resolveReference(query.asOf, tz);
+    const { year, month } = this.resolveReference(query.asOf, tz);
     const series = monthsSeries(year, month, query.months);
+
+    const startYm = monthBounds(series[0].year, series[0].month).from;
+    const endYm = monthBounds(year, month).to;
 
     const rows = await this.prisma.$queryRaw<
       Array<{ ym: string; type: string; total: Prisma.Decimal }>
     >(Prisma.sql`
-      SELECT
-        to_char(t.date, 'YYYY-MM') AS ym,
-        t.type::text AS type,
-        COALESCE(SUM(t.amount), 0) AS total
-      FROM transactions t
-      WHERE t."userId" = ${userId}
-        AND t."isPaid" = true
-        AND t.date >= ${series[0] ? monthBounds(series[0].year, series[0].month).from : '1970-01-01'}::date
-        AND t.date <= ${monthBounds(year, month).to}::date
-      GROUP BY ym, t.type
-    `);
+    SELECT
+      to_char(t.date, 'YYYY-MM') AS ym,
+      t.type::text AS type,
+      COALESCE(SUM(t.amount), 0) AS total
+    FROM transactions t
+    WHERE t."userId" = ${userId}
+      AND t."isPaid" = true
+      AND t.type IN ('INCOME', 'EXPENSE')  -- ✅ Mudança 2
+      AND t.date >= ${startYm}::date
+      AND t.date <= ${endYm}::date
+    GROUP BY ym, t.type
+  `);
 
     const map = new Map<
       string,
@@ -261,7 +259,6 @@ export class DashboardService {
     return settings?.timezone ?? 'America/Sao_Paulo';
   }
 
-  /** Agrega INCOME, EXPENSE e TRANSFER do mês em 1 query. */
   private async monthAggregates(userId: string, from: string, to: string) {
     const rows = await this.prisma.$queryRaw<
       Array<{ type: string; total: Prisma.Decimal; count: bigint }>
@@ -293,7 +290,6 @@ export class DashboardService {
     return { income, expense, transfers, count };
   }
 
-  /** Gasto por categoria (só EXPENSE) no período. */
   private async spentByCategory(
     userId: string,
     from: string,
@@ -320,7 +316,6 @@ export class DashboardService {
     return map;
   }
 
-  /** Top N categorias de despesa no período. */
   private async topExpenseCategories(
     userId: string,
     from: string,
@@ -417,6 +412,7 @@ export class DashboardService {
         institution: true,
         type: true,
         currentValue: true,
+        appliedAmount: true,
       },
     });
 
@@ -430,21 +426,21 @@ export class DashboardService {
       v."investmentId", v.value
     FROM investment_valuations v
     WHERE v."investmentId" = ANY(${ids}::text[])
-      AND v.date <= ${prevTo}::date  -- ← ESSA LINHA FALTAVA
+      AND v.date <= ${prevTo}::date
     ORDER BY v."investmentId", v.date DESC
   `);
 
     const prevMap = new Map(prevRows.map((r) => [r.investmentId, r.value]));
 
     return items.map((i) => {
-      const prev = prevMap.get(i.id) ?? null;
+      const prev = prevMap.get(i.id) ?? i.appliedAmount;
       return {
         id: i.id,
         name: i.name,
         institution: i.institution,
         type: i.type,
         currentValue: i.currentValue,
-        monthChange: prev ? i.currentValue.minus(prev) : null,
+        monthChange: prev !== null ? i.currentValue.minus(prev) : null,
       };
     });
   }
@@ -457,5 +453,14 @@ export class DashboardService {
     return Number(
       current.minus(previous).dividedBy(previous).times(100).toFixed(2),
     );
+  }
+
+  private resolveReference(
+    asOf: string | undefined,
+    tz: string,
+  ): { year: number; month: number; today: string } {
+    const today = asOf ?? todayInTz(tz);
+    const { year, month } = parseYmd(today);
+    return { year, month, today };
   }
 }

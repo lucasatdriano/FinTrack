@@ -22,11 +22,11 @@ datasource db {
 // ============================================================
 
 enum AccountType {
-  CHECKING // conta corrente
-  SAVINGS // poupança
-  CREDIT_CARD // cartão de crédito
-  WALLET // carteira / dinheiro
-  INVESTMENT // corretora / custódia
+  CHECKING
+  SAVINGS
+  CREDIT_CARD
+  WALLET
+  INVESTMENT
 }
 
 enum CategoryType {
@@ -61,10 +61,10 @@ enum InvestmentType {
 }
 
 enum Indexer {
-  CDI // taxa = % do CDI (ex.: 110)
+  CDI
   SELIC
-  IPCA // taxa = IPCA + X% a.a.
-  PREFIXED // taxa = % a.a. fixa
+  IPCA
+  PREFIXED
 }
 
 enum InvestmentStatus {
@@ -73,10 +73,10 @@ enum InvestmentStatus {
 }
 
 enum InvestmentMovementType {
-  APPLICATION // aporte
-  REDEMPTION // resgate
-  YIELD // rendimento creditado
-  DIVIDEND // dividendo / provento
+  APPLICATION 
+  REDEMPTION 
+  YIELD
+  DIVIDEND
 }
 
 enum MarketIndicator {
@@ -93,10 +93,12 @@ enum TokenType {
 }
 
 enum NotificationType {
-  BUDGET_ALERT // atingiu X% do limite
-  BUDGET_EXCEEDED // estourou o limite
+  BUDGET_ALERT
+  BUDGET_EXCEEDED
   RECURRING_CREATED
   IMPORT_FINISHED
+  TRANSACTION_DUE_SOON
+  TRANSACTION_OVERDUE
   SYSTEM
 }
 
@@ -104,10 +106,6 @@ enum ImportFormat {
   CSV
   OFX
 }
-
-// ============================================================
-// AUTENTICAÇÃO E USUÁRIO
-// ============================================================
 
 model User {
   id              String    @id @default(cuid())
@@ -152,7 +150,6 @@ model UserSettings {
   @@map("user_settings")
 }
 
-// Refresh tokens / sessões ativas (guardar apenas o hash)
 model Session {
   id               String    @id @default(cuid())
   userId           String
@@ -169,7 +166,6 @@ model Session {
   @@map("sessions")
 }
 
-// Tokens de verificação de e-mail e redefinição de senha (guardar apenas o hash)
 model VerificationToken {
   id        String    @id @default(cuid())
   userId    String
@@ -192,17 +188,16 @@ model VerificationToken {
 model Account {
   id             String      @id @default(cuid())
   userId         String
-  name           String // apelido: "Nubank Roxinho"
-  bankName       String? // "Nubank", "Itaú"...
+  name           String
+  bankName       String?
   type           AccountType
   initialBalance Decimal     @default(0) @db.Decimal(14, 2)
-  color          String? // hex
+  color          String?
   icon           String?
 
-  // Apenas para CREDIT_CARD
   creditLimit Decimal? @db.Decimal(14, 2)
-  closingDay  Int? // dia de fechamento da fatura (1-31)
-  dueDay      Int? // dia de vencimento (1-31)
+  closingDay  Int? 
+  dueDay      Int?
 
   archivedAt DateTime?
   createdAt  DateTime  @default(now())

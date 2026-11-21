@@ -17,6 +17,7 @@ import { consumeVerificationToken } from '../../common/security/consume-token.js
 import type { RegisterDto } from './dto/register.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { TokenPair } from '../../types/auth.js';
+import { CategoriesService } from '../categories/categories.service.js';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +27,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly passwordService: PasswordService,
+    private readonly categoriesService: CategoriesService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -63,6 +65,8 @@ export class AuthService {
               expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
             },
           });
+
+          await this.categoriesService.seedDefaults(tx, user.id);
 
           return { user, rawVerifyToken: raw };
         },

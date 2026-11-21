@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { TransactionTypeSchema } from './transaction.schema.js';
+import { BooleanQuery } from '../../../common/validations/boolean.schema.js';
 
 export const ListTransactionsQuerySchema = z.object({
   type: TransactionTypeSchema.optional(),
   accountId: z.string().cuid().optional(),
   categoryId: z.string().cuid().optional(),
-  isPaid: z.coerce.boolean().optional(),
+  isPaid: BooleanQuery.optional(),
   from: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
